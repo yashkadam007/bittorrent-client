@@ -1,0 +1,42 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Coverage output
+*.out
+
+# Go workspace file
+go.work
+
+# Built binary
+bittorrent-client
+bittorrent-client.exe
+
+# Build directory
+build/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+._*
+Thumbs.db
+
+# Downloaded files
+downloads/
+
+# Log files
+*.log
+
+# Temporary files
+tmp/
+temp/
