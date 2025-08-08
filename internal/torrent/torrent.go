@@ -10,37 +10,36 @@ import (
 	"github.com/yashkadam007/bittorrent-client/internal/bencode"
 )
 
-// TorrentFile represents a parsed .torrent file
+// TorrentFile represents a parsed .torrent file.
+// Contains metadata about the torrent including trackers, file info, and calculated info hash.
 type TorrentFile struct {
-	Announce     string      `json:"announce"`
-	AnnounceList [][]string  `json:"announce_list,omitempty"`
-	Comment      string      `json:"comment,omitempty"`
-	CreatedBy    string      `json:"created_by,omitempty"`
-	CreationDate int64       `json:"creation_date,omitempty"`
-	Encoding     string      `json:"encoding,omitempty"`
-	Info         TorrentInfo `json:"info"`
-	InfoHash     [20]byte    `json:"info_hash"`
+	Announce     string      `json:"announce"`      // Primary tracker URL
+	AnnounceList [][]string  `json:"announce_list"` // List of tracker tiers
+	Comment      string      `json:"comment"`       // Optional comment
+	CreatedBy    string      `json:"created_by"`    // Creator information
+	CreationDate int64       `json:"creation_date"` // Unix timestamp
+	Info         TorrentInfo `json:"info"`          // File/piece information
+	InfoHash     [20]byte    `json:"info_hash"`     // SHA1 hash of info dict
 }
 
-// TorrentInfo represents the info dictionary from a torrent file
+// TorrentInfo represents the info dictionary from a torrent file.
+// Contains information about files, pieces, and piece hashes.
 type TorrentInfo struct {
-	Name        string     `json:"name"`
-	PieceLength int64      `json:"piece_length"`
-	Pieces      []byte     `json:"pieces"`
-	Private     int64      `json:"private,omitempty"`
-	Length      int64      `json:"length,omitempty"` // Single file mode
-	MD5Sum      string     `json:"md5sum,omitempty"` // Single file mode
-	Files       []FileInfo `json:"files,omitempty"`  // Multi file mode
+	Name        string     `json:"name"`         // Name of the torrent
+	PieceLength int64      `json:"piece_length"` // Size of each piece in bytes
+	Pieces      []byte     `json:"pieces"`       // Concatenated SHA1 hashes (20 bytes each)
+	Private     int64      `json:"private"`      // Private torrent flag
+	Length      int64      `json:"length"`       // Total size (single file mode)
+	Files       []FileInfo `json:"files"`        // File list (multi-file mode)
 }
 
-// FileInfo represents a file in multi-file mode
+// FileInfo represents a file in multi-file mode.
 type FileInfo struct {
-	Length int64    `json:"length"`
-	MD5Sum string   `json:"md5sum,omitempty"`
-	Path   []string `json:"path"`
+	Length int64    `json:"length"` // File size in bytes
+	Path   []string `json:"path"`   // File path components
 }
 
-// GetPieceHashes returns the individual piece hashes
+// GetPieceHashes extracts individual 20-byte SHA1 hashes from the pieces field.
 func (t *TorrentInfo) GetPieceHashes() ([][20]byte, error) {
 	if len(t.Pieces)%20 != 0 {
 		return nil, fmt.Errorf("invalid pieces length: %d (must be multiple of 20)", len(t.Pieces))
@@ -56,7 +55,7 @@ func (t *TorrentInfo) GetPieceHashes() ([][20]byte, error) {
 	return hashes, nil
 }
 
-// GetTotalLength returns the total length of all files
+// GetTotalLength calculates the total size of all files in the torrent.
 func (t *TorrentInfo) GetTotalLength() int64 {
 	if t.Length > 0 {
 		// Single file mode
@@ -71,17 +70,17 @@ func (t *TorrentInfo) GetTotalLength() int64 {
 	return total
 }
 
-// IsMultiFile returns true if this is a multi-file torrent
+// IsMultiFile returns true if this torrent contains multiple files.
 func (t *TorrentInfo) IsMultiFile() bool {
 	return len(t.Files) > 0
 }
 
-// GetNumPieces returns the number of pieces
+// GetNumPieces returns the total number of pieces in the torrent.
 func (t *TorrentInfo) GetNumPieces() int {
 	return len(t.Pieces) / 20
 }
 
-// GetLastPieceLength returns the length of the last piece
+// GetLastPieceLength calculates the size of the final piece (may be shorter than piece_length).
 func (t *TorrentInfo) GetLastPieceLength() int64 {
 	totalLength := t.GetTotalLength()
 	numPieces := t.GetNumPieces()
@@ -97,7 +96,8 @@ func (t *TorrentInfo) GetLastPieceLength() int64 {
 	return lastPieceLength
 }
 
-// ParseTorrentFile parses a .torrent file
+// ParseTorrentFile reads and parses a .torrent file from disk.
+// Returns a TorrentFile struct with all metadata and calculated info hash.
 func ParseTorrentFile(filePath string) (*TorrentFile, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -142,7 +142,7 @@ func ParseTorrentFile(filePath string) (*TorrentFile, error) {
 		}
 	}
 
-	// Parse optional fields
+	// Parse optional metadata fields
 	if comment, ok := dict["comment"].([]byte); ok {
 		torrent.Comment = string(comment)
 	}
@@ -151,9 +151,6 @@ func ParseTorrentFile(filePath string) (*TorrentFile, error) {
 	}
 	if creationDate, ok := dict["creation date"].(int64); ok {
 		torrent.CreationDate = creationDate
-	}
-	if encoding, ok := dict["encoding"].([]byte); ok {
-		torrent.Encoding = string(encoding)
 	}
 
 	// Parse info dictionary
@@ -181,6 +178,7 @@ func ParseTorrentFile(filePath string) (*TorrentFile, error) {
 	return torrent, nil
 }
 
+// parseInfo extracts file and piece information from the info dictionary.
 func (t *TorrentFile) parseInfo(infoDict map[string]interface{}) error {
 	// Parse name
 	nameBytes, ok := infoDict["name"].([]byte)
@@ -211,13 +209,10 @@ func (t *TorrentFile) parseInfo(infoDict map[string]interface{}) error {
 		t.Info.Private = private
 	}
 
-	// Check if single file or multi file mode
+	// Determine torrent mode and parse file information
 	if length, ok := infoDict["length"].(int64); ok {
-		// Single file mode
+		// Single file torrent
 		t.Info.Length = length
-		if md5sum, ok := infoDict["md5sum"].([]byte); ok {
-			t.Info.MD5Sum = string(md5sum)
-		}
 	} else if filesInterface, ok := infoDict["files"].([]interface{}); ok {
 		// Multi file mode
 		for _, fileInterface := range filesInterface {
@@ -235,10 +230,7 @@ func (t *TorrentFile) parseInfo(infoDict map[string]interface{}) error {
 				return fmt.Errorf("missing or invalid file length")
 			}
 
-			// Parse md5sum (optional)
-			if md5sum, ok := fileDict["md5sum"].([]byte); ok {
-				fileInfo.MD5Sum = string(md5sum)
-			}
+			// md5sum is optional and rarely used, so we skip it for simplicity
 
 			// Parse path
 			pathInterface, ok := fileDict["path"].([]interface{})
@@ -267,6 +259,8 @@ func (t *TorrentFile) parseInfo(infoDict map[string]interface{}) error {
 	return nil
 }
 
+// calculateInfoHash computes the SHA1 hash of the info dictionary.
+// This hash is used to identify the torrent in the protocol.
 func (t *TorrentFile) calculateInfoHash(infoDict map[string]interface{}) error {
 	// Re-encode the info dictionary to calculate hash
 	var buf strings.Builder
@@ -281,7 +275,7 @@ func (t *TorrentFile) calculateInfoHash(infoDict map[string]interface{}) error {
 	return nil
 }
 
-// GetOutputPath returns the path where files should be saved
+// GetOutputPath determines where files should be saved based on torrent type.
 func (t *TorrentFile) GetOutputPath(baseDir string) string {
 	if baseDir == "" {
 		baseDir = "."
@@ -293,7 +287,7 @@ func (t *TorrentFile) GetOutputPath(baseDir string) string {
 	return filepath.Join(baseDir, t.Info.Name)
 }
 
-// GetAllTrackers returns all trackers from announce and announce-list
+// GetAllTrackers combines primary tracker and announce-list into a single slice.
 func (t *TorrentFile) GetAllTrackers() []string {
 	trackers := []string{t.Announce}
 
@@ -316,7 +310,7 @@ func (t *TorrentFile) GetAllTrackers() []string {
 	return trackers
 }
 
-// String returns a string representation of the torrent
+// String provides a human-readable summary of the torrent information.
 func (t *TorrentFile) String() string {
 	var sb strings.Builder
 

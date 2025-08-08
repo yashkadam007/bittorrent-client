@@ -1,194 +1,161 @@
-# BitTorrent Client
+# BitTorrent Client in Go
 
-A full-featured BitTorrent client implemented in Go, following best practices and clean architecture patterns.
+A simplified, educational BitTorrent client implementation demonstrating the core concepts of the BitTorrent protocol. This project is designed for learning purposes and resume demonstrations.
 
 ## Features
 
-- **Complete BitTorrent Protocol Implementation**
-  - Bencode encoding/decoding
-  - Torrent file parsing (.torrent files)
-  - Tracker communication (HTTP and UDP)
-  - Peer wire protocol with handshake and messaging
-  - Piece and block management
-  - File verification using SHA-1 hashes
+- ✅ **Bencode Encoding/Decoding**: Parse .torrent files using the BitTorrent bencode format
+- ✅ **Tracker Communication**: Support for HTTP/HTTPS and UDP trackers
+- ✅ **Peer Wire Protocol**: Establish connections and exchange messages with peers
+- ✅ **Piece Management**: Download, verify, and assemble file pieces
+- ✅ **File Storage**: Handle both single-file and multi-file torrents
+- ✅ **Download Strategies**: Random and rarest-first piece selection
+- ✅ **Progress Tracking**: Real-time download statistics and completion tracking
 
-- **Download Strategies**
-  - Random piece selection
-  - Rarest-first piece selection for optimal swarm performance
-  - Concurrent downloads from multiple peers
-  - Automatic peer discovery and connection management
+## Architecture Overview
 
-- **Storage Management**
-  - Support for single-file and multi-file torrents
-  - Cross-platform file I/O
-  - Resume capability (checks existing files on startup)
-  - Atomic piece verification
+The client is organized into clean, modular packages:
 
-- **Network Features**
-  - Concurrent peer connections
-  - Keep-alive message handling
-  - Connection timeout management
-  - Bandwidth monitoring
-
-## Project Structure
+### Core Components
 
 ```
-bittorrent-client/
-├── cmd/                    # Application entry point
-├── internal/
-│   ├── bencode/           # Bencode encoding/decoding
-│   ├── torrent/           # Torrent file parsing
-│   ├── tracker/           # Tracker communication
-│   ├── peer/              # Peer wire protocol
-│   ├── pieces/            # Piece and bitfield management
-│   ├── download/          # Download strategies and management
-│   └── storage/           # File storage and I/O
-├── build/                 # Build artifacts
-├── Makefile              # Build automation
-└── README.md
+internal/
+├── bencode/     # Bencode encoding/decoding for .torrent files
+├── torrent/     # Torrent file parsing and metadata handling
+├── tracker/     # Communication with BitTorrent trackers
+├── peer/        # Peer wire protocol implementation
+├── pieces/      # Piece management and verification
+├── download/    # Download coordination and strategy
+└── storage/     # File storage and assembly
 ```
 
-## Installation
+### Data Flow
 
-### Prerequisites
-
-- Go 1.21 or later
-- Make (optional, for using Makefile)
-
-### Building from Source
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd bittorrent-client
-```
-
-2. Build using Make:
-```bash
-make build
-```
-
-Or build manually:
-```bash
-go build -o build/bittorrent-client .
-```
+1. **Parse Torrent** → Extract metadata and piece hashes
+2. **Contact Tracker** → Get list of available peers
+3. **Connect to Peers** → Establish TCP connections and handshake
+4. **Download Pieces** → Request and receive data blocks
+5. **Verify Pieces** → Check SHA1 hashes for integrity
+6. **Assemble Files** → Write verified pieces to disk
 
 ## Usage
 
 ### Basic Usage
-
 ```bash
-# Run with a torrent file in current directory
-./build/bittorrent-client example.torrent
+# Download a torrent file
+go run main.go example.torrent
 
-# Specify custom output directory
-./build/bittorrent-client example.torrent -output /path/to/downloads
+# Specify output directory and port
+go run main.go example.torrent -output ./downloads -port 6881
 
 # Enable verbose logging
-./build/bittorrent-client example.torrent -verbose
-
-# Use custom port
-./build/bittorrent-client example.torrent -port 6882
+go run main.go example.torrent -verbose
 ```
 
-### Using Makefile
+### Auto-detection
+If no torrent file is specified, the client will automatically use the first `.torrent` file found in the current directory.
+
+## Implementation Details
+
+### BitTorrent Protocol Concepts
+
+**Bencode Format**: BitTorrent uses a simple encoding format for structured data:
+- Integers: `i42e`
+- Strings: `4:spam`
+- Lists: `l4:spam4:eggse`
+- Dictionaries: `d3:cow3:moo4:spam4:eggse`
+
+**Piece System**: Files are split into fixed-size pieces (typically 256KB-1MB):
+- Each piece has a SHA1 hash for verification
+- Pieces are downloaded in smaller blocks (16KB)
+- Download can happen in any order
+
+**Peer Wire Protocol**: TCP-based protocol for peer communication:
+- Handshake exchange with torrent info hash
+- Message types: choke, unchoke, interested, have, request, piece
+- Pipeline multiple requests for efficiency
+
+### Key Algorithms
+
+**Rarest First Strategy**: Prioritizes downloading pieces that are rarest among all peers:
+- Improves overall swarm health
+- Ensures all pieces remain available
+- Better than random selection for most cases
+
+**Piece Verification**: Every piece is verified using SHA1 hash:
+- Corrupted or incomplete pieces are re-downloaded
+- Ensures file integrity
+- Critical for BitTorrent's resilience
+
+## Interview Talking Points
+
+### Architecture & Design Patterns
+- **Separation of Concerns**: Each package handles a specific protocol layer
+- **Interface-based Design**: Strategy pattern for piece selection
+- **Concurrent Programming**: Goroutines for peer management and progress tracking
+- **Error Handling**: Comprehensive error propagation with context
+
+### Protocol Understanding
+- **BitTorrent Fundamentals**: DHT-less design focusing on tracker-based peer discovery
+- **Network Programming**: TCP connections, binary protocol handling, timeouts
+- **Data Integrity**: Hash verification, piece reconstruction, file assembly
+- **P2P Concepts**: Swarm dynamics, tit-for-tat, choking algorithms (simplified)
+
+### Go-Specific Features
+- **Goroutines & Channels**: Concurrent peer handling and progress reporting
+- **Interfaces**: Clean abstraction for different piece selection strategies
+- **Error Handling**: Idiomatic Go error handling with wrapped errors
+- **Standard Library**: Effective use of net, crypto, encoding packages
+
+### Scalability Considerations
+- **Connection Limits**: Configurable maximum peer connections
+- **Memory Management**: Streaming piece processing, no full-file buffering
+- **Resource Cleanup**: Proper file handle and connection management
+- **Graceful Shutdown**: Clean termination with signal handling
+
+## Simplifications
+
+This implementation focuses on core concepts and makes several simplifications:
+
+- **Download-only**: No uploading to other peers (leech mode)
+- **Single torrent**: One torrent at a time
+- **Basic DHT**: Relies on trackers, no Distributed Hash Table
+- **No encryption**: Plain TCP connections (most trackers support this)
+- **Simplified choking**: Basic connection management
+
+## Testing
 
 ```bash
-# Build and run with available torrent
-make run
+# Run the client with a small test torrent
+go run main.go test.torrent -verbose
 
-# Run with specific torrent file
-make run-with TORRENT=example.torrent
-
-# Quick development build and run
-make dev ARGS='example.torrent -verbose'
-
-# List available torrent files
-make list-torrents
+# The client will show:
+# - Torrent information parsing
+# - Tracker communication
+# - Peer connections
+# - Download progress
+# - Piece verification
 ```
 
-### Command Line Options
+## Dependencies
 
-- `-output <dir>`: Directory to save downloaded files (default: current directory)
-- `-port <port>`: Port to listen on for peer connections (default: 6881)
-- `-verbose`: Enable verbose logging for debugging
+The client uses only Go standard library packages:
+- `net` - TCP connections
+- `crypto/sha1` - Piece verification
+- `encoding/binary` - Binary protocol handling
+- `fmt`, `os`, `io` - Basic I/O operations
 
-## Development
+No external dependencies required!
 
-### Available Make Targets
+## Learning Outcomes
 
-```bash
-make build        # Build the binary
-make build-all    # Build for all platforms (Linux, Windows, macOS)
-make clean        # Clean build artifacts
-make test         # Run tests
-make coverage     # Run tests with coverage report
-make lint         # Run linter (requires golangci-lint)
-make fmt          # Format code
-make vet          # Run go vet
-make deps         # Download and tidy dependencies
-make all          # Run full development pipeline
-```
+Building this client demonstrates:
 
-### Code Quality
+1. **Network Protocol Implementation**: Understanding binary protocols and state machines
+2. **Concurrent Programming**: Managing multiple peer connections simultaneously
+3. **File I/O & Storage**: Efficient handling of large file operations
+4. **Error Handling**: Robust error management in distributed systems
+5. **Algorithm Implementation**: Piece selection strategies and optimization
+6. **System Design**: Clean architecture for complex, multi-component systems
 
-The project follows Go best practices:
-
-- **Clean Architecture**: Separation of concerns with clear layer boundaries
-- **Dependency Injection**: Loose coupling between components
-- **Error Handling**: Comprehensive error handling throughout
-- **Concurrency**: Safe concurrent operations with proper synchronization
-- **Testing**: Unit tests for core functionality
-- **Documentation**: Well-documented code and APIs
-
-### Architecture Overview
-
-1. **Bencode Layer**: Handles BitTorrent's custom encoding format
-2. **Torrent Parser**: Extracts metadata from .torrent files
-3. **Tracker Communication**: Discovers peers via HTTP/UDP trackers
-4. **Peer Protocol**: Implements BitTorrent peer wire protocol
-5. **Piece Management**: Tracks download progress and verifies integrity
-6. **Download Strategy**: Optimizes piece selection for efficient downloads
-7. **Storage Layer**: Manages file I/O and data persistence
-
-## How It Works
-
-1. **Parse Torrent**: Read and decode the .torrent file to extract metadata
-2. **Contact Tracker**: Announce to tracker and discover peers
-3. **Connect to Peers**: Establish connections using BitTorrent handshake
-4. **Exchange Pieces**: Request and download file pieces from peers
-5. **Verify Integrity**: Validate each piece using SHA-1 hashes
-6. **Assemble File**: Combine verified pieces into final files
-
-## Performance
-
-- **Concurrent Downloads**: Downloads from multiple peers simultaneously
-- **Optimized Piece Selection**: Uses rarest-first strategy for better swarm performance
-- **Memory Efficient**: Streams data to disk without loading entire files
-- **Resume Capability**: Automatically resumes interrupted downloads
-
-## Limitations
-
-- Downloads only (no seeding/uploading)
-- HTTP and UDP trackers only (no DHT or peer exchange)
-- IPv4 support only
-- Single-threaded piece verification
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make changes following Go best practices
-4. Add tests for new functionality
-5. Run `make all` to ensure code quality
-6. Submit a pull request
-
-## License
-
-This project is open source. See LICENSE file for details.
-
-## References
-
-- [BitTorrent Protocol Specification](https://wiki.theory.org/BitTorrentSpecification)
-- [BEP-0003: The BitTorrent Protocol Specification](http://bittorrent.org/beps/bep_0003.html)
-- [BEP-0015: UDP Tracker Protocol](http://bittorrent.org/beps/bep_0015.html)
+This project showcases practical Go programming skills while implementing a real-world, production-level network protocol.

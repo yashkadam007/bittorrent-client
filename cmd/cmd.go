@@ -15,7 +15,8 @@ import (
 	"github.com/yashkadam007/bittorrent-client/internal/tracker"
 )
 
-// Run executes the BitTorrent client
+// Run executes the BitTorrent client with the given parameters.
+// This is the main orchestration function that coordinates all components.
 func Run(torrentPath, outputDir string, port int, verbose bool) error {
 	// Parse torrent file
 	fmt.Printf("Parsing torrent file: %s\n", torrentPath)

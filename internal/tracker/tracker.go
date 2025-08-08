@@ -16,50 +16,46 @@ import (
 	"github.com/yashkadam007/bittorrent-client/internal/torrent"
 )
 
-// TrackerResponse represents a response from the tracker
+// TrackerResponse represents a response from a BitTorrent tracker.
 type TrackerResponse struct {
-	FailureReason  string     `json:"failure_reason,omitempty"`
-	WarningMessage string     `json:"warning_message,omitempty"`
-	Interval       int64      `json:"interval"`
-	MinInterval    int64      `json:"min_interval,omitempty"`
-	TrackerID      string     `json:"tracker_id,omitempty"`
-	Complete       int64      `json:"complete"`
-	Incomplete     int64      `json:"incomplete"`
-	Peers          []PeerInfo `json:"peers"`
+	FailureReason  string     `json:"failure_reason"`  // Error message if request failed
+	WarningMessage string     `json:"warning_message"` // Optional warning from tracker
+	Interval       int64      `json:"interval"`        // Seconds between announcements
+	MinInterval    int64      `json:"min_interval"`    // Minimum announce interval
+	TrackerID      string     `json:"tracker_id"`      // Tracker session ID
+	Complete       int64      `json:"complete"`        // Number of seeders
+	Incomplete     int64      `json:"incomplete"`      // Number of leechers
+	Peers          []PeerInfo `json:"peers"`           // List of available peers
 }
 
-// PeerInfo represents information about a peer
+// PeerInfo represents information about a single peer from the tracker.
 type PeerInfo struct {
-	ID   []byte `json:"id,omitempty"`
-	IP   string `json:"ip"`
-	Port int    `json:"port"`
+	ID   []byte `json:"id"`   // Peer ID (optional, for dictionary format)
+	IP   string `json:"ip"`   // Peer's IP address
+	Port int    `json:"port"` // Peer's listening port
 }
 
-// TrackerRequest represents a request to the tracker
+// TrackerRequest represents parameters for a tracker announce request.
 type TrackerRequest struct {
-	InfoHash   [20]byte
-	PeerID     [20]byte
-	Port       int
-	Uploaded   int64
-	Downloaded int64
-	Left       int64
-	Compact    bool
-	NoPeerID   bool
-	Event      string
-	IP         string
-	NumWant    int
-	Key        uint32
-	TrackerID  string
+	InfoHash   [20]byte // Torrent identifier
+	PeerID     [20]byte // Our client identifier
+	Port       int      // Our listening port
+	Downloaded int64    // Bytes downloaded so far
+	Left       int64    // Bytes remaining to download
+	Event      string   // "started", "completed", "stopped", or ""
+	NumWant    int      // Number of peers we want
+	Key        uint32   // Random key for tracker session
 }
 
-// TrackerClient handles communication with trackers
+// TrackerClient handles communication with BitTorrent trackers.
+// Supports both HTTP/HTTPS and UDP tracker protocols.
 type TrackerClient struct {
-	httpClient *http.Client
-	peerID     [20]byte
-	key        uint32
+	httpClient *http.Client // HTTP client for tracker requests
+	peerID     [20]byte     // Our unique peer identifier
+	key        uint32       // Random session key
 }
 
-// NewTrackerClient creates a new tracker client
+// NewTrackerClient creates a new tracker client with a random peer ID.
 func NewTrackerClient() *TrackerClient {
 	var peerID [20]byte
 	copy(peerID[:], "-GO0001-")
@@ -77,7 +73,8 @@ func NewTrackerClient() *TrackerClient {
 	}
 }
 
-// GetPeers requests peers from the tracker
+// GetPeers requests a list of peers from the tracker.
+// Tries all available trackers until one succeeds.
 func (tc *TrackerClient) GetPeers(t *torrent.TorrentFile, port int, event string) (*TrackerResponse, error) {
 	// Try all trackers until one succeeds
 	trackers := t.GetAllTrackers()
@@ -118,17 +115,16 @@ func (tc *TrackerClient) requestPeers(trackerURL string, t *torrent.TorrentFile,
 	}
 }
 
+// requestHTTPTracker sends an HTTP/HTTPS tracker request.
 func (tc *TrackerClient) requestHTTPTracker(trackerURL string, t *torrent.TorrentFile, port int, event string) (*TrackerResponse, error) {
 	req := TrackerRequest{
 		InfoHash:   t.InfoHash,
 		PeerID:     tc.peerID,
 		Port:       port,
-		Uploaded:   0, // TODO: track actual upload/download
-		Downloaded: 0,
+		Downloaded: 0, // Simplified: we don't track upload/download for basic client
 		Left:       t.Info.GetTotalLength(),
-		Compact:    true,
 		Event:      event,
-		NumWant:    50,
+		NumWant:    50, // Request up to 50 peers
 		Key:        tc.key,
 	}
 
@@ -137,7 +133,7 @@ func (tc *TrackerClient) requestHTTPTracker(trackerURL string, t *torrent.Torren
 	params.Set("info_hash", string(req.InfoHash[:]))
 	params.Set("peer_id", string(req.PeerID[:]))
 	params.Set("port", strconv.Itoa(req.Port))
-	params.Set("uploaded", strconv.FormatInt(req.Uploaded, 10))
+	params.Set("uploaded", "0") // Simplified: no upload tracking
 	params.Set("downloaded", strconv.FormatInt(req.Downloaded, 10))
 	params.Set("left", strconv.FormatInt(req.Left, 10))
 	params.Set("compact", "1")

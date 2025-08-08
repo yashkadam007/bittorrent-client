@@ -11,24 +11,25 @@ import (
 	"github.com/yashkadam007/bittorrent-client/internal/torrent"
 )
 
-// FileStorage handles reading and writing files for the torrent
+// FileStorage manages reading and writing torrent data to disk.
+// Handles both single-file and multi-file torrents transparently.
 type FileStorage struct {
-	torrent     *torrent.TorrentFile
-	baseDir     string
-	files       []*os.File
-	fileInfos   []FileInfo
-	totalLength int64
-	mutex       sync.RWMutex
+	torrent     *torrent.TorrentFile // The torrent metadata
+	baseDir     string               // Base directory for downloads
+	files       []*os.File           // Open file handles
+	fileInfos   []FileInfo           // File metadata and offsets
+	totalLength int64                // Total size of all files
+	mutex       sync.RWMutex         // Protects concurrent access
 }
 
-// FileInfo contains information about a file in the torrent
+// FileInfo contains metadata about a file in the torrent.
 type FileInfo struct {
-	Path   string
-	Length int64
-	Offset int64 // Offset within the concatenated file data
+	Path   string // Full path to the file
+	Length int64  // File size in bytes
+	Offset int64  // Byte offset in the concatenated torrent data
 }
 
-// NewFileStorage creates a new file storage instance
+// NewFileStorage creates a new file storage instance for the given torrent.
 func NewFileStorage(t *torrent.TorrentFile, baseDir string) (*FileStorage, error) {
 	if baseDir == "" {
 		baseDir = "."
@@ -48,7 +49,7 @@ func NewFileStorage(t *torrent.TorrentFile, baseDir string) (*FileStorage, error
 	return fs, nil
 }
 
-// setupFiles creates the file structure and opens files
+// setupFiles creates the directory structure and opens all torrent files.
 func (fs *FileStorage) setupFiles() error {
 	if fs.torrent.Info.IsMultiFile() {
 		// Multi-file torrent
@@ -123,7 +124,7 @@ func (fs *FileStorage) setupFiles() error {
 	return nil
 }
 
-// ReadPiece reads a complete piece from storage
+// ReadPiece reads a complete piece from the files on disk.
 func (fs *FileStorage) ReadPiece(pieceIndex int) ([]byte, error) {
 	fs.mutex.RLock()
 	defer fs.mutex.RUnlock()
@@ -144,7 +145,7 @@ func (fs *FileStorage) ReadPiece(pieceIndex int) ([]byte, error) {
 	return data, nil
 }
 
-// WritePiece writes a complete piece to storage
+// WritePiece writes a complete piece to the files on disk.
 func (fs *FileStorage) WritePiece(pieceIndex int, data []byte) error {
 	fs.mutex.Lock()
 	defer fs.mutex.Unlock()

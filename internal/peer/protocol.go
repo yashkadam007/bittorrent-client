@@ -8,61 +8,64 @@ import (
 	"time"
 )
 
-// MessageType represents the type of peer wire protocol message
+// MessageType represents the type of BitTorrent peer wire protocol message.
+// These constants define the standard message types used in peer communication.
 type MessageType uint8
 
 const (
-	MsgChoke         MessageType = 0
-	MsgUnchoke       MessageType = 1
-	MsgInterested    MessageType = 2
-	MsgNotInterested MessageType = 3
-	MsgHave          MessageType = 4
-	MsgBitfield      MessageType = 5
-	MsgRequest       MessageType = 6
-	MsgPiece         MessageType = 7
-	MsgCancel        MessageType = 8
-	MsgPort          MessageType = 9
+	MsgChoke         MessageType = 0 // Peer is choking us (won't send data)
+	MsgUnchoke       MessageType = 1 // Peer is unchoking us (will send data)
+	MsgInterested    MessageType = 2 // We are interested in peer's data
+	MsgNotInterested MessageType = 3 // We are not interested in peer's data
+	MsgHave          MessageType = 4 // Peer announces it has a piece
+	MsgBitfield      MessageType = 5 // Peer sends its complete bitfield
+	MsgRequest       MessageType = 6 // Request a block of data
+	MsgPiece         MessageType = 7 // Piece data response
+	MsgCancel        MessageType = 8 // Cancel a previous request
+	MsgPort          MessageType = 9 // DHT port announcement (rarely used)
 )
 
-// Message represents a peer wire protocol message
+// Message represents a peer wire protocol message with type and optional payload.
 type Message struct {
-	Type    MessageType
-	Payload []byte
+	Type    MessageType // Message type identifier
+	Payload []byte      // Message data (empty for some message types)
 }
 
-// Handshake represents the BitTorrent handshake
+// Handshake represents the initial BitTorrent handshake exchange.
+// This is the first message sent when connecting to a peer.
 type Handshake struct {
-	Protocol string
-	Reserved [8]byte
-	InfoHash [20]byte
-	PeerID   [20]byte
+	Protocol string   // Always "BitTorrent protocol"
+	Reserved [8]byte  // Reserved bytes (usually zero)
+	InfoHash [20]byte // SHA1 hash identifying the torrent
+	PeerID   [20]byte // Unique identifier for this client
 }
 
-// Connection represents a connection to a peer
+// Connection represents an active connection to a BitTorrent peer.
+// Manages the connection state and handles message exchange.
 type Connection struct {
-	conn       net.Conn
-	infoHash   [20]byte
-	peerID     [20]byte
-	remotePeerID [20]byte
-	choked     bool
-	choking    bool
-	interested bool
-	peerInterested bool
-	bitfield   []byte
+	conn           net.Conn // TCP connection to the peer
+	infoHash       [20]byte // Torrent we're downloading
+	peerID         [20]byte // Our client ID
+	remotePeerID   [20]byte // Remote peer's ID
+	choked         bool     // Are we choked by the peer?
+	choking        bool     // Are we choking the peer?
+	interested     bool     // Are we interested in the peer?
+	peerInterested bool     // Is the peer interested in us?
+	bitfield       []byte   // Peer's piece availability
 }
 
-// NewConnection creates a new peer connection
+// NewConnection creates a new peer connection wrapper around an existing TCP connection.
 func NewConnection(conn net.Conn, infoHash, peerID [20]byte) *Connection {
 	return &Connection{
 		conn:     conn,
 		infoHash: infoHash,
 		peerID:   peerID,
-		choked:   true,
-		choking:  true,
+		choked:   true, // Start choked (peer won't send us data initially)
+		choking:  true, // Start choking (we won't send peer data initially)
 	}
 }
 
-// Connect establishes a connection to a peer
+// Connect establishes a new TCP connection to a peer and performs the handshake.
 func Connect(addr string, infoHash, peerID [20]byte) (*Connection, error) {
 	conn, err := net.DialTimeout("tcp", addr, 30*time.Second)
 	if err != nil {
@@ -70,8 +73,8 @@ func Connect(addr string, infoHash, peerID [20]byte) (*Connection, error) {
 	}
 
 	peerConn := NewConnection(conn, infoHash, peerID)
-	
-	// Perform handshake
+
+	// Perform handshake to establish the protocol
 	err = peerConn.performHandshake()
 	if err != nil {
 		conn.Close()
@@ -81,7 +84,8 @@ func Connect(addr string, infoHash, peerID [20]byte) (*Connection, error) {
 	return peerConn, nil
 }
 
-// performHandshake performs the BitTorrent handshake
+// performHandshake executes the BitTorrent handshake protocol.
+// Both peers exchange handshake messages to verify they're talking about the same torrent.
 func (c *Connection) performHandshake() error {
 	// Create handshake
 	handshake := Handshake{
@@ -111,24 +115,24 @@ func (c *Connection) performHandshake() error {
 	return nil
 }
 
-// sendHandshake sends a handshake message
+// sendHandshake constructs and sends a handshake message to the peer.
 func (c *Connection) sendHandshake(h Handshake) error {
 	// Protocol length + protocol + reserved + info hash + peer ID
 	buf := make([]byte, 1+len(h.Protocol)+8+20+20)
-	
+
 	offset := 0
 	buf[offset] = byte(len(h.Protocol))
 	offset++
-	
+
 	copy(buf[offset:], []byte(h.Protocol))
 	offset += len(h.Protocol)
-	
+
 	copy(buf[offset:], h.Reserved[:])
 	offset += 8
-	
+
 	copy(buf[offset:], h.InfoHash[:])
 	offset += 20
-	
+
 	copy(buf[offset:], h.PeerID[:])
 
 	c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
@@ -136,17 +140,17 @@ func (c *Connection) sendHandshake(h Handshake) error {
 	return err
 }
 
-// receiveHandshake receives a handshake message
+// receiveHandshake reads and parses a handshake message from the peer.
 func (c *Connection) receiveHandshake() (*Handshake, error) {
 	c.conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	
+
 	// Read protocol length
 	protocolLenBuf := make([]byte, 1)
 	_, err := io.ReadFull(c.conn, protocolLenBuf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read protocol length: %w", err)
 	}
-	
+
 	protocolLen := int(protocolLenBuf[0])
 	if protocolLen != 19 {
 		return nil, fmt.Errorf("invalid protocol length: %d", protocolLen)
@@ -162,14 +166,14 @@ func (c *Connection) receiveHandshake() (*Handshake, error) {
 	handshake := &Handshake{
 		Protocol: string(handshakeBuf[:protocolLen]),
 	}
-	
+
 	offset := protocolLen
 	copy(handshake.Reserved[:], handshakeBuf[offset:offset+8])
 	offset += 8
-	
+
 	copy(handshake.InfoHash[:], handshakeBuf[offset:offset+20])
 	offset += 20
-	
+
 	copy(handshake.PeerID[:], handshakeBuf[offset:offset+20])
 
 	return handshake, nil
@@ -178,14 +182,14 @@ func (c *Connection) receiveHandshake() (*Handshake, error) {
 // SendMessage sends a message to the peer
 func (c *Connection) SendMessage(msg Message) error {
 	var buf []byte
-	
+
 	if msg.Type == 255 { // Keep-alive
 		buf = make([]byte, 4)
 		binary.BigEndian.PutUint32(buf, 0)
 	} else {
 		payloadLen := len(msg.Payload)
 		buf = make([]byte, 4+1+payloadLen)
-		
+
 		binary.BigEndian.PutUint32(buf[0:4], uint32(1+payloadLen))
 		buf[4] = byte(msg.Type)
 		copy(buf[5:], msg.Payload)
@@ -199,21 +203,21 @@ func (c *Connection) SendMessage(msg Message) error {
 // ReceiveMessage receives a message from the peer
 func (c *Connection) ReceiveMessage() (*Message, error) {
 	c.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	
+
 	// Read message length
 	lengthBuf := make([]byte, 4)
 	_, err := io.ReadFull(c.conn, lengthBuf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read message length: %w", err)
 	}
-	
+
 	length := binary.BigEndian.Uint32(lengthBuf)
-	
+
 	// Keep-alive message
 	if length == 0 {
 		return &Message{Type: 255}, nil
 	}
-	
+
 	if length > 1<<17 { // 128KB max message size
 		return nil, fmt.Errorf("message too large: %d bytes", length)
 	}
@@ -362,35 +366,31 @@ func (c *Connection) handleHave(pieceIndex int) error {
 		copy(newBitfield, c.bitfield)
 		c.bitfield = newBitfield
 	}
-	
+
 	// Set the bit for this piece
 	bitIndex := uint(pieceIndex % 8)
 	c.bitfield[byteIndex] |= (0x80 >> bitIndex)
-	
+
 	return nil
 }
 
-// handleRequest handles a request message
-func (c *Connection) handleRequest(pieceIndex, begin, length int) error {
-	// TODO: Implement piece serving logic
-	// For now, just log the request
-	fmt.Printf("Received request for piece %d, begin %d, length %d\n", pieceIndex, begin, length)
+// handleRequest processes a piece request from the peer.
+// In this simplified client, we don't serve pieces to others (download-only).
+func (c *Connection) handleRequest(_, _, _ int) error {
+	// Download-only client - we don't serve pieces
 	return nil
 }
 
-// handlePiece handles a piece message
-func (c *Connection) handlePiece(pieceIndex, begin int, data []byte) error {
-	// TODO: Implement piece storage logic
-	// For now, just log the piece
-	fmt.Printf("Received piece %d, begin %d, length %d\n", pieceIndex, begin, len(data))
+// handlePiece processes incoming piece data.
+// The actual piece storage is handled by the download manager.
+func (c *Connection) handlePiece(_, _ int, _ []byte) error {
+	// Piece handling is done by the download manager
 	return nil
 }
 
-// handleCancel handles a cancel message
-func (c *Connection) handleCancel(pieceIndex, begin, length int) error {
-	// TODO: Implement request cancellation logic
-	// For now, just log the cancellation
-	fmt.Printf("Received cancel for piece %d, begin %d, length %d\n", pieceIndex, begin, length)
+// handleCancel processes a request cancellation from the peer.
+func (c *Connection) handleCancel(_, _, _ int) error {
+	// Request cancellation handling (not critical for basic functionality)
 	return nil
 }
 
@@ -399,12 +399,12 @@ func (c *Connection) HasPiece(pieceIndex int) bool {
 	if c.bitfield == nil {
 		return false
 	}
-	
+
 	byteIndex := pieceIndex / 8
 	if byteIndex >= len(c.bitfield) {
 		return false
 	}
-	
+
 	bitIndex := uint(pieceIndex % 8)
 	return (c.bitfield[byteIndex] & (0x80 >> bitIndex)) != 0
 }
@@ -434,7 +434,7 @@ func (c *Connection) GetBitfield() []byte {
 	if c.bitfield == nil {
 		return nil
 	}
-	
+
 	result := make([]byte, len(c.bitfield))
 	copy(result, c.bitfield)
 	return result

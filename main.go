@@ -1,3 +1,15 @@
+// BitTorrent Client
+//
+// A simplified BitTorrent client implementation in Go that demonstrates
+// the core concepts of the BitTorrent protocol:
+// - Bencode encoding/decoding for .torrent files
+// - Tracker communication (HTTP/HTTPS and UDP)
+// - Peer wire protocol for downloading pieces
+// - Piece verification using SHA1 hashes
+// - File assembly and storage
+//
+// This client is designed for educational purposes and resume demonstrations.
+// It implements a download-only client with rarest-first piece selection.
 package main
 
 import (
@@ -11,16 +23,15 @@ import (
 )
 
 func main() {
+	// Auto-detect .torrent file if not provided
 	if len(os.Args) < 2 {
-		// Try to find a .torrent file in current directory
 		files, err := filepath.Glob("*.torrent")
 		if err != nil || len(files) == 0 {
 			fmt.Println("Usage: go run main.go <file.torrent> [options]")
 			fmt.Println("Or place a .torrent file in the current directory")
 			os.Exit(1)
 		}
-
-		// Add the found torrent file as the first argument
+		// Use the first .torrent file found
 		os.Args = append([]string{os.Args[0], files[0]}, os.Args[1:]...)
 		fmt.Printf("Using found torrent file: %s\n", files[0])
 	}

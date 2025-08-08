@@ -7,43 +7,45 @@ import (
 )
 
 const (
-	// BlockSize is the standard block size for BitTorrent (16KB)
+	// BlockSize is the standard block size for BitTorrent (16KB).
+	// Pieces are downloaded in these smaller blocks for efficient transfer.
 	BlockSize = 16384
 )
 
-// PieceManager manages piece downloads and verification
+// PieceManager coordinates piece downloads and verification.
+// It tracks which pieces are complete, in progress, or missing.
 type PieceManager struct {
-	mutex         sync.RWMutex
-	pieceLength   int
-	totalLength   int64
-	pieceHashes   [][20]byte
-	numPieces     int
-	bitfield      *Bitfield
-	pendingPieces map[int]*PieceState
-	completePieces map[int][]byte
+	mutex          sync.RWMutex        // Protects concurrent access
+	pieceLength    int                 // Size of each piece (except possibly the last)
+	totalLength    int64               // Total torrent size
+	pieceHashes    [][20]byte          // Expected SHA1 hash for each piece
+	numPieces      int                 // Total number of pieces
+	bitfield       *Bitfield           // Tracks completed pieces
+	pendingPieces  map[int]*PieceState // Pieces currently being downloaded
+	completePieces map[int][]byte      // Completed piece data
 }
 
-// PieceState tracks the state of a piece being downloaded
+// PieceState tracks the download progress of a single piece.
 type PieceState struct {
-	Index       int
-	Length      int
-	Hash        [20]byte
-	Downloaded  int
-	Blocks      map[int][]byte // block offset -> data
-	Requested   map[int]bool   // block offset -> requested
+	Index      int            // Piece index in the torrent
+	Length     int            // Total piece length
+	Hash       [20]byte       // Expected SHA1 hash for verification
+	Downloaded int            // Bytes downloaded so far
+	Blocks     map[int][]byte // Downloaded blocks (offset -> data)
+	Requested  map[int]bool   // Requested blocks (offset -> requested)
 }
 
-// BlockRequest represents a request for a block
+// BlockRequest represents a request for a specific block of data.
 type BlockRequest struct {
-	PieceIndex int
-	Begin      int
-	Length     int
+	PieceIndex int // Which piece this block belongs to
+	Begin      int // Byte offset within the piece
+	Length     int // Number of bytes to request
 }
 
-// NewPieceManager creates a new piece manager
+// NewPieceManager creates a new piece manager for the given torrent parameters.
 func NewPieceManager(pieceLength int, totalLength int64, pieceHashes [][20]byte) *PieceManager {
 	numPieces := len(pieceHashes)
-	
+
 	return &PieceManager{
 		pieceLength:    pieceLength,
 		totalLength:    totalLength,
@@ -59,7 +61,7 @@ func NewPieceManager(pieceLength int, totalLength int64, pieceHashes [][20]byte)
 func (pm *PieceManager) GetBitfield() *Bitfield {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	return pm.bitfield.Clone()
 }
 
@@ -67,7 +69,7 @@ func (pm *PieceManager) GetBitfield() *Bitfield {
 func (pm *PieceManager) HasPiece(pieceIndex int) bool {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	return pm.bitfield.HasPiece(pieceIndex)
 }
 
@@ -76,7 +78,7 @@ func (pm *PieceManager) GetPieceLength(pieceIndex int) int {
 	if pieceIndex < 0 || pieceIndex >= pm.numPieces {
 		return 0
 	}
-	
+
 	if pieceIndex == pm.numPieces-1 {
 		// Last piece might be shorter
 		lastPieceLength := int(pm.totalLength % int64(pm.pieceLength))
@@ -85,7 +87,7 @@ func (pm *PieceManager) GetPieceLength(pieceIndex int) int {
 		}
 		return lastPieceLength
 	}
-	
+
 	return pm.pieceLength
 }
 
@@ -93,21 +95,21 @@ func (pm *PieceManager) GetPieceLength(pieceIndex int) int {
 func (pm *PieceManager) StartPiece(pieceIndex int) error {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
-	
+
 	if pieceIndex < 0 || pieceIndex >= pm.numPieces {
 		return fmt.Errorf("piece index %d out of range", pieceIndex)
 	}
-	
+
 	if pm.bitfield.HasPiece(pieceIndex) {
 		return fmt.Errorf("piece %d already complete", pieceIndex)
 	}
-	
+
 	if _, exists := pm.pendingPieces[pieceIndex]; exists {
 		return fmt.Errorf("piece %d already in progress", pieceIndex)
 	}
-	
+
 	pieceLength := pm.GetPieceLength(pieceIndex)
-	
+
 	pm.pendingPieces[pieceIndex] = &PieceState{
 		Index:      pieceIndex,
 		Length:     pieceLength,
@@ -116,7 +118,7 @@ func (pm *PieceManager) StartPiece(pieceIndex int) error {
 		Blocks:     make(map[int][]byte),
 		Requested:  make(map[int]bool),
 	}
-	
+
 	return nil
 }
 
@@ -124,36 +126,36 @@ func (pm *PieceManager) StartPiece(pieceIndex int) error {
 func (pm *PieceManager) GetNextBlockRequest(pieceIndex int) (*BlockRequest, error) {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
-	
+
 	piece, exists := pm.pendingPieces[pieceIndex]
 	if !exists {
 		return nil, fmt.Errorf("piece %d not in progress", pieceIndex)
 	}
-	
+
 	// Find the next unrequested block
 	for offset := 0; offset < piece.Length; offset += BlockSize {
 		if piece.Requested[offset] {
 			continue
 		}
-		
+
 		if _, hasBlock := piece.Blocks[offset]; hasBlock {
 			continue
 		}
-		
+
 		blockLength := BlockSize
 		if offset+blockLength > piece.Length {
 			blockLength = piece.Length - offset
 		}
-		
+
 		piece.Requested[offset] = true
-		
+
 		return &BlockRequest{
 			PieceIndex: pieceIndex,
 			Begin:      offset,
 			Length:     blockLength,
 		}, nil
 	}
-	
+
 	return nil, nil // No more blocks to request
 }
 
@@ -161,30 +163,30 @@ func (pm *PieceManager) GetNextBlockRequest(pieceIndex int) (*BlockRequest, erro
 func (pm *PieceManager) AddBlock(pieceIndex, begin int, data []byte) error {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
-	
+
 	piece, exists := pm.pendingPieces[pieceIndex]
 	if !exists {
 		return fmt.Errorf("piece %d not in progress", pieceIndex)
 	}
-	
+
 	if begin < 0 || begin >= piece.Length {
 		return fmt.Errorf("invalid block offset %d for piece %d", begin, pieceIndex)
 	}
-	
+
 	if begin+len(data) > piece.Length {
 		return fmt.Errorf("block extends beyond piece boundary")
 	}
-	
+
 	// Store the block
 	piece.Blocks[begin] = make([]byte, len(data))
 	copy(piece.Blocks[begin], data)
 	piece.Downloaded += len(data)
-	
+
 	// Check if piece is complete
 	if pm.isPieceComplete(piece) {
 		return pm.completePiece(pieceIndex)
 	}
-	
+
 	return nil
 }
 
@@ -204,14 +206,14 @@ func (pm *PieceManager) isPieceComplete(piece *PieceState) bool {
 // completePiece verifies and marks a piece as complete
 func (pm *PieceManager) completePiece(pieceIndex int) error {
 	piece := pm.pendingPieces[pieceIndex]
-	
+
 	// Assemble the complete piece
 	pieceData := make([]byte, piece.Length)
 	for offset := 0; offset < piece.Length; offset += BlockSize {
 		block := piece.Blocks[offset]
 		copy(pieceData[offset:], block)
 	}
-	
+
 	// Verify hash
 	hash := sha1.Sum(pieceData)
 	if hash != piece.Hash {
@@ -219,12 +221,12 @@ func (pm *PieceManager) completePiece(pieceIndex int) error {
 		delete(pm.pendingPieces, pieceIndex)
 		return fmt.Errorf("piece %d hash verification failed", pieceIndex)
 	}
-	
+
 	// Mark piece as complete
 	pm.bitfield.SetPiece(pieceIndex)
 	pm.completePieces[pieceIndex] = pieceData
 	delete(pm.pendingPieces, pieceIndex)
-	
+
 	fmt.Printf("Piece %d completed and verified\n", pieceIndex)
 	return nil
 }
@@ -233,17 +235,17 @@ func (pm *PieceManager) completePiece(pieceIndex int) error {
 func (pm *PieceManager) GetPieceData(pieceIndex int) ([]byte, error) {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	if !pm.bitfield.HasPiece(pieceIndex) {
 		return nil, fmt.Errorf("piece %d not complete", pieceIndex)
 	}
-	
+
 	if data, exists := pm.completePieces[pieceIndex]; exists {
 		result := make([]byte, len(data))
 		copy(result, data)
 		return result, nil
 	}
-	
+
 	return nil, fmt.Errorf("piece %d data not found", pieceIndex)
 }
 
@@ -251,11 +253,11 @@ func (pm *PieceManager) GetPieceData(pieceIndex int) ([]byte, error) {
 func (pm *PieceManager) GetProgress() (int, int, float64) {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	completed := pm.bitfield.GetNumCompletePieces()
 	total := pm.bitfield.GetNumPieces()
 	percentage := pm.bitfield.GetCompletionPercentage()
-	
+
 	return completed, total, percentage
 }
 
@@ -263,7 +265,7 @@ func (pm *PieceManager) GetProgress() (int, int, float64) {
 func (pm *PieceManager) IsComplete() bool {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	return pm.bitfield.IsComplete()
 }
 
@@ -271,7 +273,7 @@ func (pm *PieceManager) IsComplete() bool {
 func (pm *PieceManager) GetMissingPieces() []int {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	return pm.bitfield.GetMissingPieces()
 }
 
@@ -279,7 +281,7 @@ func (pm *PieceManager) GetMissingPieces() []int {
 func (pm *PieceManager) CancelPiece(pieceIndex int) {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
-	
+
 	delete(pm.pendingPieces, pieceIndex)
 }
 
@@ -287,19 +289,19 @@ func (pm *PieceManager) CancelPiece(pieceIndex int) {
 func (pm *PieceManager) GetPendingRequests(pieceIndex int) int {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	piece, exists := pm.pendingPieces[pieceIndex]
 	if !exists {
 		return 0
 	}
-	
+
 	pending := 0
 	for offset := 0; offset < piece.Length; offset += BlockSize {
 		if piece.Requested[offset] && piece.Blocks[offset] == nil {
 			pending++
 		}
 	}
-	
+
 	return pending
 }
 
@@ -307,22 +309,22 @@ func (pm *PieceManager) GetPendingRequests(pieceIndex int) int {
 func (pm *PieceManager) GetPieceProgress(pieceIndex int) (int, int) {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	if pm.bitfield.HasPiece(pieceIndex) {
 		length := pm.GetPieceLength(pieceIndex)
 		return length, length
 	}
-	
+
 	piece, exists := pm.pendingPieces[pieceIndex]
 	if !exists {
 		return 0, pm.GetPieceLength(pieceIndex)
 	}
-	
+
 	downloaded := 0
 	for _, block := range piece.Blocks {
 		downloaded += len(block)
 	}
-	
+
 	return downloaded, piece.Length
 }
 
@@ -330,11 +332,11 @@ func (pm *PieceManager) GetPieceProgress(pieceIndex int) (int, int) {
 func (pm *PieceManager) GetAllPieceData() ([]byte, error) {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	if !pm.bitfield.IsComplete() {
 		return nil, fmt.Errorf("download not complete")
 	}
-	
+
 	var result []byte
 	for i := 0; i < pm.numPieces; i++ {
 		data, exists := pm.completePieces[i]
@@ -343,6 +345,6 @@ func (pm *PieceManager) GetAllPieceData() ([]byte, error) {
 		}
 		result = append(result, data...)
 	}
-	
+
 	return result, nil
 }
