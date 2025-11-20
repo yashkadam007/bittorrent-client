@@ -112,6 +112,7 @@ type DownloadManager struct {
 	mutex        sync.RWMutex               // Protects shared state
 	active       bool                       // Is the download manager running?
 	stats        *DownloadStats             // Download statistics
+	quiet        bool                       // Suppress stdout output (for TUI mode)
 }
 
 // PeerConnection wraps a peer connection with download-specific state.
@@ -135,11 +136,17 @@ type DownloadStats struct {
 
 // NewDownloadManager creates a new download manager with the given piece manager and strategy.
 func NewDownloadManager(pieceManager *pieces.PieceManager, strategy PieceStrategy) *DownloadManager {
+	return NewDownloadManagerWithOptions(pieceManager, strategy, false)
+}
+
+// NewDownloadManagerWithOptions creates a new download manager with additional options.
+func NewDownloadManagerWithOptions(pieceManager *pieces.PieceManager, strategy PieceStrategy, quiet bool) *DownloadManager {
 	return &DownloadManager{
 		pieceManager: pieceManager,
 		strategy:     strategy,
 		peers:        make(map[string]*PeerConnection),
 		maxPeers:     50,
+		quiet:        quiet,
 		stats: &DownloadStats{
 			StartTime: time.Now(),
 		},
@@ -176,7 +183,9 @@ func (dm *DownloadManager) AddPeers(peers []tracker.PeerInfo, infoHash, peerID [
 func (dm *DownloadManager) connectToPeer(addr string, infoHash, peerID [20]byte) {
 	conn, err := peer.Connect(addr, infoHash, peerID)
 	if err != nil {
-		fmt.Printf("Failed to connect to peer %s: %v\n", addr, err)
+		if !dm.quiet {
+			fmt.Printf("Failed to connect to peer %s: %v\n", addr, err)
+		}
 		return
 	}
 
@@ -193,7 +202,9 @@ func (dm *DownloadManager) connectToPeer(addr string, infoHash, peerID [20]byte)
 	dm.stats.PeersConnected++
 	dm.mutex.Unlock()
 
-	fmt.Printf("Connected to peer %s\n", addr)
+	if !dm.quiet {
+		fmt.Printf("Connected to peer %s\n", addr)
+	}
 
 	// Start message handling
 	go dm.handlePeer(peerConn)
@@ -208,7 +219,9 @@ func (dm *DownloadManager) handlePeer(peerConn *PeerConnection) {
 	// Send interested message
 	err := peerConn.conn.SendInterested()
 	if err != nil {
-		fmt.Printf("Failed to send interested to %s: %v\n", peerConn.addr, err)
+		if !dm.quiet {
+			fmt.Printf("Failed to send interested to %s: %v\n", peerConn.addr, err)
+		}
 		return
 	}
 
@@ -222,7 +235,9 @@ func (dm *DownloadManager) handlePeer(peerConn *PeerConnection) {
 	for dm.active {
 		msg, err := peerConn.conn.ReceiveMessage()
 		if err != nil {
-			fmt.Printf("Error receiving message from %s: %v\n", peerConn.addr, err)
+			if !dm.quiet {
+				fmt.Printf("Error receiving message from %s: %v\n", peerConn.addr, err)
+			}
 			return
 		}
 
@@ -230,7 +245,9 @@ func (dm *DownloadManager) handlePeer(peerConn *PeerConnection) {
 
 		err = dm.handleMessage(peerConn, msg)
 		if err != nil {
-			fmt.Printf("Error handling message from %s: %v\n", peerConn.addr, err)
+			if !dm.quiet {
+				fmt.Printf("Error handling message from %s: %v\n", peerConn.addr, err)
+			}
 			return
 		}
 	}
@@ -261,7 +278,9 @@ func (dm *DownloadManager) handleMessage(peerConn *PeerConnection, msg *peer.Mes
 		// Add block to piece manager
 		err := dm.pieceManager.AddBlock(pieceIndex, begin, data)
 		if err != nil {
-			fmt.Printf("Failed to add block: %v\n", err)
+			if !dm.quiet {
+				fmt.Printf("Failed to add block: %v\n", err)
+			}
 		}
 
 		// Update stats
@@ -322,7 +341,9 @@ func (dm *DownloadManager) requestBlocks(peerConn *PeerConnection) {
 		// Send request
 		err = peerConn.conn.SendRequest(blockReq.PieceIndex, blockReq.Begin, blockReq.Length)
 		if err != nil {
-			fmt.Printf("Failed to send request to %s: %v\n", peerConn.addr, err)
+			if !dm.quiet {
+				fmt.Printf("Failed to send request to %s: %v\n", peerConn.addr, err)
+			}
 			break
 		}
 
@@ -343,13 +364,17 @@ func (dm *DownloadManager) keepAlive(peerConn *PeerConnection) {
 		<-ticker.C
 		if time.Since(peerConn.lastActivity) > 3*time.Minute {
 			// Peer is inactive, disconnect
-			fmt.Printf("Peer %s inactive, disconnecting\n", peerConn.addr)
+			if !dm.quiet {
+				fmt.Printf("Peer %s inactive, disconnecting\n", peerConn.addr)
+			}
 			return
 		}
 
 		err := peerConn.conn.SendKeepAlive()
 		if err != nil {
-			fmt.Printf("Failed to send keep-alive to %s: %v\n", peerConn.addr, err)
+			if !dm.quiet {
+				fmt.Printf("Failed to send keep-alive to %s: %v\n", peerConn.addr, err)
+			}
 			return
 		}
 	}
@@ -362,7 +387,9 @@ func (dm *DownloadManager) removePeer(addr string) {
 	if _, exists := dm.peers[addr]; exists {
 		delete(dm.peers, addr)
 		dm.stats.PeersConnected--
-		fmt.Printf("Disconnected from peer %s\n", addr)
+		if !dm.quiet {
+			fmt.Printf("Disconnected from peer %s\n", addr)
+		}
 	}
 }
 

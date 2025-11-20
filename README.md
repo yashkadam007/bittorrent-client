@@ -11,6 +11,7 @@ A simplified, educational BitTorrent client implementation demonstrating the cor
 - ✅ **File Storage**: Handle both single-file and multi-file torrents
 - ✅ **Download Strategies**: Random and rarest-first piece selection
 - ✅ **Progress Tracking**: Real-time download statistics and completion tracking
+- ✅ **Terminal UI**: Beautiful, real-time terminal interface with progress visualization
 
 ## Architecture Overview
 
@@ -26,7 +27,8 @@ internal/
 ├── peer/        # Peer wire protocol implementation
 ├── pieces/      # Piece management and verification
 ├── download/    # Download coordination and strategy
-└── storage/     # File storage and assembly
+├── storage/     # File storage and assembly
+└── tui/         # Terminal user interface
 ```
 
 ### Data Flow
@@ -41,16 +43,31 @@ internal/
 ## Usage
 
 ### Basic Usage
+
+**With Terminal UI (Default):**
 ```bash
-# Download a torrent file
+# Download with beautiful terminal interface
 go run main.go example.torrent
 
 # Specify output directory and port
 go run main.go example.torrent -output ./downloads -port 6881
-
-# Enable verbose logging
-go run main.go example.torrent -verbose
 ```
+
+**Command Line Mode:**
+```bash
+# Use traditional command-line output
+go run main.go example.torrent -tui=false -verbose
+
+# All options combined
+go run main.go example.torrent -output ./downloads -port 6881 -tui=false -verbose
+```
+
+**Terminal UI Features:**
+- 🎨 Real-time progress bar with completion percentage
+- 📊 Live download statistics (speed, peers, ETA)
+- 🧩 Visual piece completion map
+- ⌨️ Interactive controls (h for help, q to quit)
+- 🎯 Responsive design that adapts to terminal size
 
 ### Auto-detection
 If no torrent file is specified, the client will automatically use the first `.torrent` file found in the current directory.
@@ -139,13 +156,17 @@ go run main.go test.torrent -verbose
 
 ## Dependencies
 
-The client uses only Go standard library packages:
+**Core BitTorrent Protocol** (Standard Library):
 - `net` - TCP connections
 - `crypto/sha1` - Piece verification
 - `encoding/binary` - Binary protocol handling
 - `fmt`, `os`, `io` - Basic I/O operations
 
-No external dependencies required!
+**Terminal UI** (External Libraries):
+- `github.com/charmbracelet/bubbletea` - Modern TUI framework
+- `github.com/charmbracelet/lipgloss` - Style and layout engine
+
+The core protocol implementation uses only standard library - TUI is an optional enhancement!
 
 ## Learning Outcomes
 

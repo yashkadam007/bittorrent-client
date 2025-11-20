@@ -23,6 +23,7 @@ type PieceManager struct {
 	bitfield       *Bitfield           // Tracks completed pieces
 	pendingPieces  map[int]*PieceState // Pieces currently being downloaded
 	completePieces map[int][]byte      // Completed piece data
+	quiet          bool                // Suppress stdout output
 }
 
 // PieceState tracks the download progress of a single piece.
@@ -44,6 +45,11 @@ type BlockRequest struct {
 
 // NewPieceManager creates a new piece manager for the given torrent parameters.
 func NewPieceManager(pieceLength int, totalLength int64, pieceHashes [][20]byte) *PieceManager {
+	return NewPieceManagerWithOptions(pieceLength, totalLength, pieceHashes, false)
+}
+
+// NewPieceManagerWithOptions creates a new piece manager with additional options.
+func NewPieceManagerWithOptions(pieceLength int, totalLength int64, pieceHashes [][20]byte, quiet bool) *PieceManager {
 	numPieces := len(pieceHashes)
 
 	return &PieceManager{
@@ -54,6 +60,7 @@ func NewPieceManager(pieceLength int, totalLength int64, pieceHashes [][20]byte)
 		bitfield:       NewBitfield(numPieces),
 		pendingPieces:  make(map[int]*PieceState),
 		completePieces: make(map[int][]byte),
+		quiet:          quiet,
 	}
 }
 
@@ -227,7 +234,9 @@ func (pm *PieceManager) completePiece(pieceIndex int) error {
 	pm.completePieces[pieceIndex] = pieceData
 	delete(pm.pendingPieces, pieceIndex)
 
-	fmt.Printf("Piece %d completed and verified\n", pieceIndex)
+	if !pm.quiet {
+		fmt.Printf("Piece %d completed and verified\n", pieceIndex)
+	}
 	return nil
 }
 

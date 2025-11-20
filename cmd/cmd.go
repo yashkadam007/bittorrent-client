@@ -13,7 +13,18 @@ import (
 	"github.com/yashkadam007/bittorrent-client/internal/storage"
 	"github.com/yashkadam007/bittorrent-client/internal/torrent"
 	"github.com/yashkadam007/bittorrent-client/internal/tracker"
+	"github.com/yashkadam007/bittorrent-client/internal/tui"
 )
+
+// RunWithTUI executes the BitTorrent client with a terminal UI.
+func RunWithTUI(torrentPath, outputDir string, port int, verbose bool) error {
+	runner, err := tui.NewRunner(torrentPath, outputDir, port, verbose)
+	if err != nil {
+		return err
+	}
+
+	return runner.Run()
+}
 
 // Run executes the BitTorrent client with the given parameters.
 // This is the main orchestration function that coordinates all components.

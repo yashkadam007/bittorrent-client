@@ -43,16 +43,25 @@ func main() {
 	outputDir := flag.String("output", ".", "Output directory")
 	port := flag.Int("port", 6881, "Port to listen on")
 	verbose := flag.Bool("verbose", false, "Verbose output")
+	useTUI := flag.Bool("tui", true, "Use terminal UI (default: true)")
 
 	flag.CommandLine.Parse(os.Args[2:])
 
-	fmt.Printf("BitTorrent Client\n")
-	fmt.Printf("Torrent: %s\n", torrentFile)
-	fmt.Printf("Output: %s\n", *outputDir)
-	fmt.Printf("Port: %d\n", *port)
+	// Show startup info only in non-TUI mode
+	if !*useTUI {
+		fmt.Printf("BitTorrent Client\n")
+		fmt.Printf("Torrent: %s\n", torrentFile)
+		fmt.Printf("Output: %s\n", *outputDir)
+		fmt.Printf("Port: %d\n", *port)
+	}
 
 	// Delegate to cmd package
-	err := cmd.Run(torrentFile, *outputDir, *port, *verbose)
+	var err error
+	if *useTUI {
+		err = cmd.RunWithTUI(torrentFile, *outputDir, *port, *verbose)
+	} else {
+		err = cmd.Run(torrentFile, *outputDir, *port, *verbose)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
